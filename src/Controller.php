@@ -33,6 +33,8 @@ use BadMethodCallException;
 use SilverStripe\Dev\Backtrace;
 use SilverStripe\Core\ClassInfo;
 
+use Psr\SimpleCache\CacheInterface;
+
 /**
  * Top level controller for handling graphql requests.
  */
@@ -93,46 +95,57 @@ class Controller extends BaseController
             return $this->handleOptions($request);
         }
 
+        $cache = Injector::inst()->get(CacheInterface::class . '.graphql');
+        $cacheKey = 'graphql_global' ;
+
         // Main query handling
         try {
             list($query, $variables) = $this->getRequestQueryVariables($request);
             if (!$query) {
                 $this->httpError(400, 'This endpoint requires a "query" parameter');
             }
-            $builder = SchemaBuilder::singleton();
-            $graphqlSchema = $builder->getSchema($this->getSchemaKey());
-            if (!$graphqlSchema && $this->autobuildEnabled()) {
-                // clear the cache on autobuilds until we trust it more. Maybe
-                // make this configurable.
-                $clear = true;
-                $graphqlSchema = $builder->buildByName($this->getSchemaKey(), $clear);
-            } elseif (!$graphqlSchema) {
-                throw new SchemaBuilderException(sprintf(
-                    'Schema %s has not been built.',
-                    $this->getSchemaKey()
-                ));
-            }
-            $handler = $this->getQueryHandler();
-            $this->applyContext($handler);
-            $ctx = $handler->getContext();
-            if (ClassInfo::hasMethod($handler, 'validateQueryBeforeParsing')) {
-                $handler->validateQueryBeforeParsing($query, $ctx);
-            }
-            $queryDocument = Parser::parse(new Source($query));
-            $result = $handler->query($graphqlSchema, $query, $variables);
+            $cacheKey = 'graphql_' . md5($query) . '_' . md5(json_encode($variables));
 
-            // Fire an eventYou
-            $eventContext = [
-                'schema' => $graphqlSchema,
-                'schemaKey' => $this->getSchemaKey(),
-                'query' => $query,
-                'context' => $ctx,
-                'variables' => $variables,
-                'result' => $result,
-            ];
-            $event = QueryHandler::isMutation($query) ? 'graphqlMutation' : 'graphqlQuery';
-            $operationName = QueryHandler::getOperationName($queryDocument);
-            Dispatcher::singleton()->trigger($event, Event::create($operationName, $eventContext));
+            if ($cached = $cache->get($cacheKey)) {
+                $result = $cached;
+            } else {
+                $builder = SchemaBuilder::singleton();
+                $graphqlSchema = $builder->getSchema($this->getSchemaKey());
+                if (!$graphqlSchema && $this->autobuildEnabled()) {
+                    // clear the cache on autobuilds until we trust it more. Maybe
+                    // make this configurable.
+                    $clear = true;
+                    $graphqlSchema = $builder->buildByName($this->getSchemaKey(), $clear);
+                } elseif (!$graphqlSchema) {
+                    throw new SchemaBuilderException(sprintf(
+                        'Schema %s has not been built.',
+                        $this->getSchemaKey()
+                    ));
+                }
+                $handler = $this->getQueryHandler();
+                $this->applyContext($handler);
+                $ctx = $handler->getContext();
+                if (ClassInfo::hasMethod($handler, 'validateQueryBeforeParsing')) {
+                    $handler->validateQueryBeforeParsing($query, $ctx);
+                }
+                $queryDocument = Parser::parse(new Source($query));
+                $result = $handler->query($graphqlSchema, $query, $variables);
+
+                // Fire an eventYou
+                $eventContext = [
+                    'schema' => $graphqlSchema,
+                    'schemaKey' => $this->getSchemaKey(),
+                    'query' => $query,
+                    'context' => $ctx,
+                    'variables' => $variables,
+                    'result' => $result,
+                ];
+                $event = QueryHandler::isMutation($query) ? 'graphqlMutation' : 'graphqlQuery';
+                $operationName = QueryHandler::getOperationName($queryDocument);
+                Dispatcher::singleton()->trigger($event, Event::create($operationName, $eventContext));
+
+                $cache->set($cacheKey, $result);
+            }
         } catch (Exception $exception) {
             $error = ['message' => $exception->getMessage()];
 
