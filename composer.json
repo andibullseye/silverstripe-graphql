@@ -3,6 +3,11 @@
     "description": "GraphQL server for SilverStripe models and other data",
     "type": "silverstripe-vendormodule",
     "license": "BSD-3-Clause",
+    "extra": {
+        "branch-alias": {
+            "dev-5.3-cached": "5.3.x-dev"
+        },
+    },
     "require": {
         "php": "^8.1",
         "silverstripe/framework": "^5.4",
