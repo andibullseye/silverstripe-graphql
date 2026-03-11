@@ -95,7 +95,7 @@ class Controller extends BaseController
             return $this->handleOptions($request);
         }
 
-        $cache = Injector::inst()->get(CacheInterface::class . '.graphql');
+        $cacheObj = Injector::inst()->get(CacheInterface::class . '.graphql');
         $cacheKey = 'graphql_global' ;
 
         // Main query handling
@@ -105,18 +105,17 @@ class Controller extends BaseController
                 $this->httpError(400, 'This endpoint requires a "query" parameter');
             }
 
-            $key_variables = $variables;
-            $keyToRemove = 'now';
-            unset($key_variables->{$keyToRemove});
-            unset($key_variables[$keyToRemove]);
-            $keyToRemove = 'ispreview';
-            unset($key_variables->{$keyToRemove});
-            unset($key_variables[$keyToRemove]);
+            $tmp_variables = json_decode(json_encode($variables), true);
+            if(isset($tmp_variables['now'])) {
+                $time_now = strtotime($tmp_variables['now']);
+                $tmp_variables['now'] = date('Y-m-d H:00:00', $time_now); // 2026-03-11 16:50:24
+            }
+            $key_variables = $tmp_variables;
 
             $cacheKey = 'graphql_' . md5($query) . '_' . md5(json_encode($key_variables));
 
-            if ($cached = $cache->get($cacheKey)) {
-                $result = $cached;
+            if ($cached_data = $cacheObj->get($cacheKey)) {
+                $result = $cached_data;
             } else {
                 $builder = SchemaBuilder::singleton();
                 $graphqlSchema = $builder->getSchema($this->getSchemaKey());
@@ -153,7 +152,7 @@ class Controller extends BaseController
                 $operationName = QueryHandler::getOperationName($queryDocument);
                 Dispatcher::singleton()->trigger($event, Event::create($operationName, $eventContext));
 
-                $cache->set($cacheKey, $result);
+                $cacheObj->set($cacheKey, $result);
             }
         } catch (Exception $exception) {
             $error = ['message' => $exception->getMessage()];
