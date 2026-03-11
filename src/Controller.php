@@ -104,7 +104,16 @@ class Controller extends BaseController
             if (!$query) {
                 $this->httpError(400, 'This endpoint requires a "query" parameter');
             }
-            $cacheKey = 'graphql_' . md5($query) . '_' . md5(json_encode($variables));
+
+            $key_variables = $variables;
+            $keyToRemove = 'now';
+            unset($key_variables->{$keyToRemove});
+            unset($key_variables[$keyToRemove]);
+            $keyToRemove = 'ispreview';
+            unset($key_variables->{$keyToRemove});
+            unset($key_variables[$keyToRemove]);
+
+            $cacheKey = 'graphql_' . md5($query) . '_' . md5(json_encode($key_variables));
 
             if ($cached = $cache->get($cacheKey)) {
                 $result = $cached;
