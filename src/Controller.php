@@ -95,9 +95,6 @@ class Controller extends BaseController
             return $this->handleOptions($request);
         }
 
-        $cacheObj = Injector::inst()->get(CacheInterface::class . '.graphql');
-        $cacheKey = 'graphql_global' ;
-
         // Main query handling
         try {
             list($query, $variables) = $this->getRequestQueryVariables($request);
@@ -111,7 +108,9 @@ class Controller extends BaseController
                 $tmp_variables['now'] = date('Y-m-d H:00:00', $time_now); // 2026-03-11 16:50:24
             }
             $key_variables = $tmp_variables;
+            $variables = $tmp_variables;
 
+            $cacheObj = Injector::inst()->get(CacheInterface::class . '.graphql');
             $cacheKey = 'graphql_' . md5($query) . '_' . md5(json_encode($key_variables));
 
             if ($cached_data = $cacheObj->get($cacheKey)) {
@@ -139,6 +138,9 @@ class Controller extends BaseController
                 $queryDocument = Parser::parse(new Source($query));
                 $result = $handler->query($graphqlSchema, $query, $variables);
 
+                $cacheObj->set($cacheKey, $result);
+                $cacheKey = 'blank';
+
                 // Fire an eventYou
                 $eventContext = [
                     'schema' => $graphqlSchema,
@@ -151,8 +153,6 @@ class Controller extends BaseController
                 $event = QueryHandler::isMutation($query) ? 'graphqlMutation' : 'graphqlQuery';
                 $operationName = QueryHandler::getOperationName($queryDocument);
                 Dispatcher::singleton()->trigger($event, Event::create($operationName, $eventContext));
-
-                $cacheObj->set($cacheKey, $result);
             }
         } catch (Exception $exception) {
             $error = ['message' => $exception->getMessage()];
